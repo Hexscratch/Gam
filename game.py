@@ -1,5 +1,6 @@
 import sys
 import random
+import math
 import pygame
 
 from players import NBA_PLAYERS, SHOT_TYPES
@@ -26,6 +27,21 @@ FPS = 60
 BACKGROUND_COLOR = (30, 30, 30)
 WHITE = (255, 255, 255)
 
+# Court & play colors
+WOOD_COLOR = (185, 145, 100)
+LINE_COLOR = (255, 255, 255)
+
+# Defensive play probabilities
+BLOCK_PROB = {
+    "3pt": 0.05,
+    "dunk": 0.20,
+    "layup": 0.25,
+    "free_throw": 0.0,
+}
+
+# Generic steal probability before shot attempt
+STEAL_PROB = 0.10
+
 KEY_MAPPINGS = [
     pygame.K_1,
     pygame.K_2,
@@ -48,6 +64,41 @@ def draw_text(text, font, color, x, y, center=False):
     else:
         rect.topleft = (x, y)
     SCREEN.blit(img, rect)
+
+
+# ---------------------------------- Court ---------------------------------- #
+
+
+def draw_court():
+    """Render a simple basketball court."""
+    SCREEN.fill(WOOD_COLOR)
+
+    # Boundaries
+    margin_x, margin_y = 80, 40
+    court_rect = pygame.Rect(margin_x, margin_y, WIDTH - 2 * margin_x, HEIGHT - 2 * margin_y)
+    pygame.draw.rect(SCREEN, LINE_COLOR, court_rect, 4)
+
+    # Half-court line
+    pygame.draw.line(SCREEN, LINE_COLOR, (WIDTH // 2, margin_y), (WIDTH // 2, HEIGHT - margin_y), 4)
+
+    # Center circle
+    pygame.draw.circle(SCREEN, LINE_COLOR, (WIDTH // 2, HEIGHT // 2), 60, 4)
+
+    # The keys (paint)
+    key_width, key_height = 160, 180
+    left_key_rect = pygame.Rect(margin_x, HEIGHT // 2 - key_height // 2, key_width, key_height)
+    right_key_rect = pygame.Rect(WIDTH - margin_x - key_width, HEIGHT // 2 - key_height // 2, key_width, key_height)
+    pygame.draw.rect(SCREEN, LINE_COLOR, left_key_rect, 4)
+    pygame.draw.rect(SCREEN, LINE_COLOR, right_key_rect, 4)
+
+    # Three-point arcs (approximate with arcs)
+    arc_radius = 240
+    # Left arc
+    left_arc_rect = pygame.Rect(margin_x - arc_radius // 2, HEIGHT // 2 - arc_radius // 2, arc_radius, arc_radius)
+    pygame.draw.arc(SCREEN, LINE_COLOR, left_arc_rect, math.radians(300), math.radians(60), 4)
+    # Right arc
+    right_arc_rect = pygame.Rect(WIDTH - margin_x - arc_radius // 2, HEIGHT // 2 - arc_radius // 2, arc_radius, arc_radius)
+    pygame.draw.arc(SCREEN, LINE_COLOR, right_arc_rect, math.radians(120), math.radians(240), 4)
 
 
 def select_player_screen():
@@ -84,11 +135,24 @@ def select_player_screen():
 
 
 def attempt_shot(player_name, shot_key):
-    """Return (success: bool, points_awarded: int)."""
-    prob = NBA_PLAYERS[player_name][shot_key]
-    result = random.random() < prob
-    points = SHOT_TYPES[shot_key]["points"] if result else 0
-    return result, points
+    """Simulate a shot, factoring in steals and blocks.
+
+    Returns (outcome: str, points_awarded: int) where outcome ∈ {"steal", "block", "miss", "made"}.
+    """
+    # Check for steal before shot
+    if random.random() < STEAL_PROB:
+        return "steal", 0
+
+    # Check for block on the shot attempt
+    if random.random() < BLOCK_PROB.get(shot_key, 0):
+        return "block", 0
+
+    # Determine if shot is made
+    made = random.random() < NBA_PLAYERS[player_name][shot_key]
+    if made:
+        return "made", SHOT_TYPES[shot_key]["points"]
+    else:
+        return "miss", 0
 
 
 def play_game(player_name):
@@ -106,7 +170,7 @@ def play_game(player_name):
 
     running = True
     while running:
-        SCREEN.fill(BACKGROUND_COLOR)
+        draw_court()
 
         # Draw UI
         draw_text(f"Player: {player_name}", TEXT_FONT, WHITE, 40, 20)
@@ -137,12 +201,18 @@ def play_game(player_name):
                     score = 0
                 if event.key in key_binding:
                     shot_type = key_binding[event.key]
-                    success, pts = attempt_shot(player_name, shot_type)
-                    if success:
+                    outcome, pts = attempt_shot(player_name, shot_type)
+
+                    if outcome == "made":
                         score += pts
-                        last_message = f"{SHOT_TYPES[shot_type]['label']}! +{pts}"
-                    else:
+                        last_message = f"{SHOT_TYPES[shot_type]['label']} Made! +{pts}"
+                    elif outcome == "miss":
                         last_message = f"Missed {SHOT_TYPES[shot_type]['label']}!"
+                    elif outcome == "block":
+                        last_message = "Shot Blocked!"
+                    elif outcome == "steal":
+                        last_message = "Ball Stolen!"
+
                     message_timer = FPS  # message lasts 1 second
 
         CLOCK.tick(FPS)
